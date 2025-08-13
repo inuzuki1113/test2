@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>シンプルプロキシ</title>
+</head>
+<body>
+<h1>シンプルプロキシ</h1>
+<form id="goForm">
+  <input type="text" id="url" placeholder="URLを入力（例: https://game8.jp）" size="50">
+  <button type="submit">Go</button>
+</form>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(() => console.log('SW registered'));
+}
+
+document.getElementById('goForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const u = document.getElementById('url').value.trim();
+  if (!u) return alert('URLを入力してください');
+  location.href = '/proxy?url=' + encodeURIComponent(u);
+});
+</script>
+</body>
+</html>
