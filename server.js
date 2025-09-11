@@ -3,6 +3,7 @@ import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,19 +13,25 @@ const PORT = process.env.PORT || 10000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// プロキシ
-app.get('/proxy', async (req, res) => {
-  const target = req.query.url;
-  if (!target) return res.status(400).send('Missing url');
+// URL マッピング用の辞書
+const urlMap = {};
+
+// ランダム ID 生成関数
+function generateId(length = 12) {
+  return crypto.randomBytes(length).toString('hex');
+}
+
+// プロキシエンドポイント（ID 受け取り）
+app.get('/proxy/:id', async (req, res) => {
+  const target = urlMap[req.params.id];
+  if (!target) return res.status(404).send('Not Found');
 
   try {
-    // リダイレクトを自分で制御
     const response = await fetch(target, { redirect: 'manual', headers: { 'Cookie': '' } });
     const contentType = response.headers.get('content-type') || '';
 
     if (contentType.includes('text/html')) {
       let html = await response.text();
-
       const baseUrl = new URL(target);
 
       // CSPやX-Frame-Options削除
@@ -35,14 +42,18 @@ app.get('/proxy', async (req, res) => {
       html = html.replace(/(href|src)="([^"]*)"/g, (m, attr, url) => {
         try {
           const absoluteUrl = url.startsWith('http') ? url : new URL(url, baseUrl).toString();
-          return `${attr}="/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
+          const id = generateId();
+          urlMap[id] = absoluteUrl;
+          return `${attr}="/proxy/${id}"`;
         } catch { return m; }
       });
 
       html = html.replace(/url\(["']?([^"')]+)["']?\)/g, (m, url) => {
         try {
           const absoluteUrl = url.startsWith('http') ? url : new URL(url, baseUrl).toString();
-          return `url("/proxy?url=${encodeURIComponent(absoluteUrl)}")`;
+          const id = generateId();
+          urlMap[id] = absoluteUrl;
+          return `url("/proxy/${id}")`;
         } catch { return m; }
       });
 
@@ -50,21 +61,28 @@ app.get('/proxy', async (req, res) => {
       html = html.replace(/<iframe[^>]+src="([^"]+)"/gi, (m, url) => {
         try {
           const absoluteUrl = url.startsWith('http') ? url : new URL(url, baseUrl).toString();
-          return m.replace(url, `/proxy?url=${encodeURIComponent(absoluteUrl)}`);
-        } catch { return m; }
-      });
-      html = html.replace(/<video[^>]+src="([^"]+)"/gi, (m, url) => {
-        try {
-          const absoluteUrl = url.startsWith('http') ? url : new URL(url, baseUrl).toString();
-          return m.replace(url, `/proxy?url=${encodeURIComponent(absoluteUrl)}`);
+          const id = generateId();
+          urlMap[id] = absoluteUrl;
+          return m.replace(url, `/proxy/${id}`);
         } catch { return m; }
       });
 
-      // Pornhub動画ページかつ age verification でない場合のみ embed に変換
+      html = html.replace(/<video[^>]+src="([^"]+)"/gi, (m, url) => {
+        try {
+          const absoluteUrl = url.startsWith('http') ? url : new URL(url, baseUrl).toString();
+          const id = generateId();
+          urlMap[id] = absoluteUrl;
+          return m.replace(url, `/proxy/${id}`);
+        } catch { return m; }
+      });
+
+      // Pornhub 動画ページかつ age verification でない場合のみ embed に変換
       if (target.includes('view_video.php?viewkey=') && !html.includes('age_verification')) {
-        const id = new URL(target).searchParams.get('viewkey');
-        const embedUrl = `https://www.pornhub.com/embed/${id}`;
-        html = `<iframe width="640" height="360" src="/proxy?url=${encodeURIComponent(embedUrl)}" frameborder="0" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
+        const idParam = new URL(target).searchParams.get('viewkey');
+        const embedUrl = `https://www.pornhub.com/embed/${idParam}`;
+        const embedId = generateId();
+        urlMap[embedId] = embedUrl;
+        html = `<iframe width="640" height="360" src="/proxy/${embedId}" frameborder="0" allowfullscreen allow="autoplay; fullscreen"></iframe>`;
       }
 
       // ヘッダ設定
