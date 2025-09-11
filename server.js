@@ -21,6 +21,16 @@ function generateId(length = 12) {
   return crypto.randomBytes(length).toString('hex');
 }
 
+// /proxy?url=... 形式を受け取ってランダムIDに変換してリダイレクト
+app.get('/proxy', (req, res) => {
+  const target = req.query.url;
+  if (!target) return res.status(400).send('Missing url');
+
+  const id = generateId();
+  urlMap[id] = target;
+  res.redirect(`/proxy/${id}`);
+});
+
 // プロキシエンドポイント（ID 受け取り）
 app.get('/proxy/:id', async (req, res) => {
   const target = urlMap[req.params.id];
